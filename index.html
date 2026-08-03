@@ -551,6 +551,25 @@ const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').match
 let state, positionKeys, history, lastMove, selected, legalCache, flipped;
 let names = { w: 'White', b: 'Black' };
 
+// Remote sync: null in local pass-and-play mode, else { base, es }.
+let remote = null, remoteCanUndo = false;
+
+// --- UCI <-> internal move conversion (for talking to the sync server) ---
+function sqToStr(sq) { return String.fromCharCode(97 + (sq & 7)) + String.fromCharCode(49 + (sq >> 3)); }
+function parseSquare(s) { return (s.charCodeAt(0) - 97) + (s.charCodeAt(1) - 49) * 8; }
+function moveToUci(m) {
+  // Castling moves already carry king from/to squares, matching UCI convention.
+  return sqToStr(m.from) + sqToStr(m.to) + (m.promotion ? m.promotion.toLowerCase() : '');
+}
+function uciToMove(uci) {
+  const from = parseSquare(uci.slice(0, 2));
+  const to = parseSquare(uci.slice(2, 4));
+  const promo = uci[4] || null;
+  return legalMoves(state).find((m) =>
+    m.from === from && m.to === to &&
+    (promo ? (m.promotion || '').toLowerCase() === promo : !m.promotion)) || null;
+}
+
 function loadSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem('chessForDad') || '{}');
@@ -613,7 +632,7 @@ function render(anim) {
     }
   }
   updateTurn();
-  undoBtn.disabled = history.length === 0;
+  undoBtn.disabled = remote ? !remoteCanUndo : history.length === 0;
   if (anim && !reduceMotion) animateSlide(anim);
 }
 
@@ -679,6 +698,16 @@ boardEl.addEventListener('click', (e) => {
 });
 
 function doMove(move) {
+  if (remote) {
+    // The server is the authority: send the move and let its SSE echo re-render.
+    selected = null;
+    render();
+    fetch(remote.base + '/api/move', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ move: moveToUci(move) }),
+    });
+    return;
+  }
   history.push({ state, keys: positionKeys.slice(), lastMove });
   const rook = move.castle
     ? (move.castle === 'k'
@@ -698,6 +727,7 @@ function doMove(move) {
 }
 
 undoBtn.addEventListener('click', () => {
+  if (remote) { fetch(remote.base + '/api/undo', { method: 'POST' }); return; }
   if (!history.length) return;
   const prev = history.pop();
   state = prev.state;
@@ -724,11 +754,12 @@ function showEnd(status) {
       'draw-50': '50 moves with no capture and no pawn move.',
       'draw-material': 'Not enough pieces left to checkmate.',
       'draw-repetition': 'The same position happened three times.',
+      'draw': 'This game is a draw.',
     })[status] || '';
   }
   endcard.classList.add('show');
 }
-document.getElementById('playAgain').addEventListener('click', () => { endcard.classList.remove('show'); newGame(); });
+document.getElementById('playAgain').addEventListener('click', () => { endcard.classList.remove('show'); requestNewGame(); });
 document.getElementById('lookBoard').addEventListener('click', () => endcard.classList.remove('show'));
 
 /* --- Settings overlay --- */
@@ -747,13 +778,80 @@ document.getElementById('saveSettings').addEventListener('click', () => {
   names.b = (nameBlack.value.trim() || 'Black');
   saveSettings();
   settings.classList.remove('show');
+  if (remote) {
+    fetch(remote.base + '/api/names', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ w: names.w, b: names.b }),
+    });
+  }
   render();
 });
-document.getElementById('newGame').addEventListener('click', () => { settings.classList.remove('show'); newGame(); });
+document.getElementById('newGame').addEventListener('click', () => { settings.classList.remove('show'); requestNewGame(); });
 settings.addEventListener('click', (e) => { if (e.target === settings) settings.classList.remove('show'); });
 
+/* --- Remote sync (falls back to local pass-and-play when no server) --- */
+function requestNewGame() {
+  if (remote) {
+    fetch(remote.base + '/api/new', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ w: names.w, b: names.b }),
+    });
+  } else {
+    newGame();
+  }
+}
+
+// Rebuild local state from the server's authoritative snapshot by replaying its
+// move list, then render — keeping the rich local UI (move dots, check glow) in
+// step with the server without a second rules implementation.
+function syncFromServer(snap) {
+  if (snap.names) names = { w: snap.names.w, b: snap.names.b };
+  state = initialState();
+  positionKeys = [positionKey(state)];
+  for (const uci of snap.moves) {
+    const mv = uciToMove(uci);
+    if (!mv) break;
+    state = makeMove(state, mv);
+    positionKeys.push(positionKey(state));
+  }
+  history = [];
+  lastMove = snap.lastMove
+    ? { from: parseSquare(snap.lastMove.slice(0, 2)), to: parseSquare(snap.lastMove.slice(2, 4)) }
+    : null;
+  selected = null;
+  legalCache = legalMoves(state);
+  remoteCanUndo = !!snap.canUndo;
+  render();
+  if (snap.status === 'checkmate') {
+    setTimeout(() => showEnd('checkmate'), 380);
+  } else if (snap.status === 'draw') {
+    setTimeout(() => showEnd('draw'), 380);
+  } else {
+    endcard.classList.remove('show');
+  }
+}
+
+function startRemote(base, snap) {
+  remote = { base, es: null };
+  syncFromServer(snap);
+  const es = new EventSource(base + '/api/events');
+  es.onmessage = (e) => syncFromServer(JSON.parse(e.data));
+  remote.es = es;
+}
+
+// If a sync server answers (this page is served by it, or ?server=URL is given),
+// play networked; otherwise fall back to local single-device pass-and-play.
+function initApp() {
+  const serverParam = new URLSearchParams(location.search).get('server');
+  const base = serverParam !== null ? serverParam.replace(/\/$/, '') : '';
+  fetch(base + '/api/state')
+    .then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then((snap) => startRemote(base, snap))
+    .catch(() => newGame());
+}
+
 loadSettings();
-newGame();
+initApp();
 window.addEventListener('resize', () => render());
 </script>
 </body>
