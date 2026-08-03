@@ -91,6 +91,34 @@ auto RunPerft(const string& fen, int depth) -> void {
   cout << "\nTotal: " << total << endl;
 }
 
+// Apply one UCI move to a position. Prints the resulting FEN and the game
+// status for the side now to move, or "illegal" if the move is not legal.
+// This is the authoritative state transition the sync server relies on.
+auto RunApply(const string& fen, const string& uci) -> void {
+  Board board(fen);
+  Engine engine(&board, 'w');
+  S8 mover = board.GetPlayerToMove();
+  vector<Move> pseudo = engine.GenerateMoves();
+  for (Move& m : pseudo) {
+    try {
+      board.MakeMove(m);
+    } catch (BadMove&) {
+      // Not legal (leaves the king in check); MakeMove unwinds on throw.
+      continue;
+    }
+    if (MoveToUci(m, mover) == uci) {
+      string new_fen = board.ToFen();
+      string st = StatusStr(engine.GetGameStatus());
+      board.UnmakeMove(m);
+      cout << "fen: " << new_fen << endl;
+      cout << "status: " << st << endl;
+      return;
+    }
+    board.UnmakeMove(m);
+  }
+  cout << "illegal" << endl;
+}
+
 // Print every legal move (UCI), then a "status:" line for the side to move.
 auto RunMoves(const string& fen) -> void {
   Board board(fen);
@@ -116,7 +144,8 @@ auto main(int argc, char* argv[]) -> int {
   if (argc < 2) {
     std::cerr << "Usage:\n"
               << "  chess-for-dad perft <depth> [fen]\n"
-              << "  chess-for-dad moves [fen]" << std::endl;
+              << "  chess-for-dad moves [fen]\n"
+              << "  chess-for-dad apply <fen> <uci-move>" << std::endl;
     return 1;
   }
   const std::string cmd = argv[1];
@@ -133,6 +162,14 @@ auto main(int argc, char* argv[]) -> int {
   if (cmd == "moves") {
     std::string fen = (argc >= 3) ? argv[2] : kStartFen;
     omegazero::RunMoves(fen);
+    return 0;
+  }
+  if (cmd == "apply") {
+    if (argc < 4) {
+      std::cerr << "apply needs a fen and a uci move" << std::endl;
+      return 1;
+    }
+    omegazero::RunApply(argv[2], argv[3]);
     return 0;
   }
   std::cerr << "unknown command: " << cmd << std::endl;
