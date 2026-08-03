@@ -38,3 +38,27 @@ or the [live board](https://noah8368.github.io/chess-for-dad/).
 Tap the gear ⚙️ to set names, which side faces you, and **You play: White / Black /
 Both** — so each person only moves their own pieces (or add `?side=w` / `?side=b`
 to the URL).
+
+## 🌐 Play together, from anywhere
+
+A copy runs 24/7 on a small always-on server, so two people can share one game
+over the internet with zero setup on either device.
+
+**Live game → http://159.69.32.163:8000**
+
+- Open it on both devices — any network (home Wi-Fi, cellular, anywhere).
+- Lock each device to one colour, so a person only ever moves their own pieces:
+  - White → http://159.69.32.163:8000/?side=w
+  - Black → http://159.69.32.163:8000/?side=b
+- **Bookmark it, or "Add to Home Screen"**, so it's a one-tap icon with no URL to
+  type — the whole point is that Dad can just tap and play. 📱
+- You don't have to be online at the same time: the game lives on the server, so
+  play live (moves appear instantly) *or* turn-by-turn — move now, come back
+  later. Tap the gear ⚙️ to set names; they sync to both devices.
+
+It runs as a `systemd` service, so it stays up across reboots and restarts itself
+if it ever stops. To update after a code change:
+
+```
+ssh root@159.69.32.163 'cd /root/chess-for-dad && git pull && make && systemctl restart chess-for-dad'
+```
