@@ -1,0 +1,8 @@
+node_modules/
+.DS_Store
+__pycache__/
+*.pyc
+
+# Build artifacts
+build/
+chess-for-dad
