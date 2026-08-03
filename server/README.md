@@ -7,6 +7,14 @@ own move generator, never a second chess implementation.
 
 ## Run
 
+The easy way, from the repo root:
+
+```
+./start.sh                # builds the rules brain if needed, then serves
+```
+
+Or manually:
+
 ```
 make                      # build the rules brain (from the repo root)
 python3 server/server.py  # serve on http://localhost:8000

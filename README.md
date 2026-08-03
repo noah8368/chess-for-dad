@@ -24,10 +24,17 @@ make                     # build the chess-for-dad rules brain
 
 ## ▶️ Play
 
-Open `index.html`, or serve the folder:
+**Two devices, live** — one command:
 
 ```
-python3 -m http.server 8000   # then visit http://localhost:8000
+./start.sh        # builds if needed, then prints a link for each device
 ```
 
-Tap the gear ⚙️ to set both players' names and which side faces you.
+Open the printed link on both devices (same Wi-Fi) and moves sync instantly. 📱↔️📱
+
+**One device** (pass-and-play) works with no server at all — just open `index.html`
+or the [live board](https://noah8368.github.io/chess-for-dad/).
+
+Tap the gear ⚙️ to set names, which side faces you, and **You play: White / Black /
+Both** — so each person only moves their own pieces (or add `?side=w` / `?side=b`
+to the URL).

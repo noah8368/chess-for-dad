@@ -42,6 +42,19 @@ def position_key(fen):
     return " ".join(fen.split(" ")[:4])
 
 
+def insufficient_material(fen):
+    """True when neither side has enough material to checkmate: lone kings, or
+    king vs king plus a single minor piece."""
+    placement = fen.split(" ")[0]
+    non_king = [c.upper() for c in placement
+                if c.isalpha() and c.upper() != "K"]
+    if len(non_king) == 0:
+        return True
+    if len(non_king) == 1 and non_king[0] in ("B", "N"):
+        return True
+    return False
+
+
 class RulesBrain:
     """Thin wrapper over the compiled `chess-for-dad` binary."""
 
@@ -139,8 +152,10 @@ class Game:
             key = position_key(new_fen)
             self.position_counts[key] = self.position_counts.get(key, 0) + 1
             # The binary settles check/checkmate/stalemate/fifty-move from the
-            # FEN; threefold repetition needs history, so it is decided here.
-            if status != "checkmate" and self.position_counts[key] >= 3:
+            # FEN; history- and material-based draws are decided here.
+            if status != "checkmate" and (
+                    self.position_counts[key] >= 3
+                    or insufficient_material(new_fen)):
                 status = "draw"
             self.status = status
             self._broadcast_locked()

@@ -316,6 +316,8 @@
         <input type="text" id="nameBlack" maxlength="16" /></div>
       <div class="field row"><label>Your side faces you</label>
         <button class="toggle" id="flipToggle" type="button"></button></div>
+      <div class="field row"><label>You play</label>
+        <button class="toggle" id="sideToggle" type="button"></button></div>
       <div class="btn-row">
         <button class="btn primary" id="saveSettings">Save</button>
         <button class="btn ghost" id="newGame">Start a new game</button>
@@ -551,8 +553,11 @@ const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').match
 let state, positionKeys, history, lastMove, selected, legalCache, flipped;
 let names = { w: 'White', b: 'Black' };
 
+// Which side this device is allowed to move: 'both' (default), 'w', or 'b'.
+let mySide = 'both';
+
 // Remote sync: null in local pass-and-play mode, else { base, es }.
-let remote = null, remoteCanUndo = false;
+let remote = null, remoteCanUndo = false, remoteReady = false, remoteMoveCount = 0;
 
 // --- UCI <-> internal move conversion (for talking to the sync server) ---
 function sqToStr(sq) { return String.fromCharCode(97 + (sq & 7)) + String.fromCharCode(49 + (sq >> 3)); }
@@ -576,13 +581,16 @@ function loadSettings() {
     if (saved.w) names.w = saved.w;
     if (saved.b) names.b = saved.b;
     flipped = !!saved.flipped;
+    if (saved.side === 'w' || saved.side === 'b' || saved.side === 'both') mySide = saved.side;
   } catch { flipped = false; }
   const params = new URLSearchParams(location.search);
   if (params.get('w')) names.w = params.get('w');
   if (params.get('b')) names.b = params.get('b');
+  const sideParam = params.get('side');
+  if (sideParam === 'w' || sideParam === 'b') mySide = sideParam;
 }
 function saveSettings() {
-  localStorage.setItem('chessForDad', JSON.stringify({ w: names.w, b: names.b, flipped }));
+  localStorage.setItem('chessForDad', JSON.stringify({ w: names.w, b: names.b, flipped, side: mySide }));
 }
 
 function newGame() {
@@ -686,9 +694,9 @@ boardEl.addEventListener('click', (e) => {
       return;
     }
   }
-  // Selecting one of your own pieces.
+  // Selecting one of your own pieces — only the side this device may move.
   const p = state.board[sq];
-  if (p !== null && colorOf(p) === state.turn) {
+  if (p !== null && colorOf(p) === state.turn && (mySide === 'both' || mySide === state.turn)) {
     selected = sq;
     render();
   } else {
@@ -767,12 +775,20 @@ const settings = document.getElementById('settings');
 const nameWhite = document.getElementById('nameWhite');
 const nameBlack = document.getElementById('nameBlack');
 const flipToggle = document.getElementById('flipToggle');
+const sideToggle = document.getElementById('sideToggle');
+const SIDE_LABEL = { both: 'Both', w: 'White', b: 'Black' };
 function refreshFlipToggle() { flipToggle.textContent = flipped ? 'Black' : 'White'; }
+function refreshSideToggle() { sideToggle.textContent = SIDE_LABEL[mySide]; }
 document.getElementById('gear').addEventListener('click', () => {
-  nameWhite.value = names.w; nameBlack.value = names.b; refreshFlipToggle();
+  nameWhite.value = names.w; nameBlack.value = names.b;
+  refreshFlipToggle(); refreshSideToggle();
   settings.classList.add('show');
 });
 flipToggle.addEventListener('click', () => { flipped = !flipped; refreshFlipToggle(); });
+sideToggle.addEventListener('click', () => {
+  mySide = mySide === 'both' ? 'w' : (mySide === 'w' ? 'b' : 'both');
+  refreshSideToggle();
+});
 document.getElementById('saveSettings').addEventListener('click', () => {
   names.w = (nameWhite.value.trim() || 'White');
   names.b = (nameBlack.value.trim() || 'Black');
@@ -808,11 +824,13 @@ function syncFromServer(snap) {
   if (snap.names) names = { w: snap.names.w, b: snap.names.b };
   state = initialState();
   positionKeys = [positionKey(state)];
+  let lastMv = null;
   for (const uci of snap.moves) {
     const mv = uciToMove(uci);
     if (!mv) break;
     state = makeMove(state, mv);
     positionKeys.push(positionKey(state));
+    lastMv = mv;
   }
   history = [];
   lastMove = snap.lastMove
@@ -821,7 +839,22 @@ function syncFromServer(snap) {
   selected = null;
   legalCache = legalMoves(state);
   remoteCanUndo = !!snap.canUndo;
-  render();
+  // Slide-animate only a newly-played move (not the initial load, undo, or a
+  // new game), matching the local-play feel.
+  const advanced = remoteReady && snap.moves.length > remoteMoveCount;
+  remoteMoveCount = snap.moves.length;
+  remoteReady = true;
+  let anim;
+  if (advanced && lastMv) {
+    const white = lastMv.from < 8;
+    const rook = lastMv.castle
+      ? (lastMv.castle === 'k'
+          ? { from: white ? 7 : 63, to: white ? 5 : 61 }
+          : { from: white ? 0 : 56, to: white ? 3 : 59 })
+      : null;
+    anim = { from: lastMv.from, to: lastMv.to, rook };
+  }
+  render(anim);
   if (snap.status === 'checkmate') {
     setTimeout(() => showEnd('checkmate'), 380);
   } else if (snap.status === 'draw') {
