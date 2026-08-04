@@ -104,10 +104,11 @@
   .turn .chip {
     font-size: 1.15em;
     line-height: 1;
+    font-family: "Segoe UI Symbol", "Noto Sans Symbols 2", "Apple Symbols", serif;
     filter: drop-shadow(0 1px 1px var(--shadow));
   }
-  .turn .chip.white { color: var(--w-fill); -webkit-text-stroke: 1.4px var(--w-stroke); }
-  .turn .chip.black { color: var(--b-fill); -webkit-text-stroke: 1.4px var(--b-stroke); }
+  .turn .chip.white { color: var(--w-fill); -webkit-text-stroke: 0.03em var(--w-stroke); }
+  .turn .chip.black { color: var(--b-fill); -webkit-text-stroke: 0.03em var(--b-stroke); }
   .turn.is-check { color: var(--danger); }
   .turn .check-word { font-size: 0.62em; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; }
 
@@ -178,14 +179,19 @@
   .piece {
     font-size: 2rem;        /* fallback for browsers without container units */
     font-size: 78cqmin;     /* fill ~78% of the square */
+    /* Prefer fonts that render chess symbols as solid text glyphs (never emoji). */
+    font-family: "Segoe UI Symbol", "Noto Sans Symbols 2", "Apple Symbols", serif;
     line-height: 1;
     user-select: none;
     z-index: 2;
     filter: drop-shadow(0 2px 2px var(--shadow));
     will-change: transform;
   }
-  .piece.white { color: var(--w-fill); -webkit-text-stroke: 1.7px var(--w-stroke); text-shadow: 0 0 1px var(--w-stroke); }
-  .piece.black { color: var(--b-fill); -webkit-text-stroke: 1.7px var(--b-stroke); text-shadow: 0 0 1px var(--b-stroke); }
+  /* Stroke in em (not px) so the outline stays proportional to the glyph on
+     small mobile squares — a fixed px stroke swallows the light interior and
+     makes white pieces read as black. */
+  .piece.white { color: var(--w-fill); -webkit-text-stroke: 0.03em var(--w-stroke); }
+  .piece.black { color: var(--b-fill); -webkit-text-stroke: 0.03em var(--b-stroke); }
 
   /* Legal-move affordances: a fat dot on empty targets, a ring on captures. */
   .dot::before {
@@ -544,7 +550,10 @@ function gameStatus(state, history) {
 }
 
 /* ======================= UI ======================= */
-const GLYPH = { K: '♚', Q: '♛', R: '♜', B: '♝', N: '♞', P: '♟' };
+// The trailing ︎ (text variation selector) forces monochrome text
+// rendering: without it, mobile browsers show ♟/♞/etc. as black emoji that
+// ignore CSS color, making white pieces (and every pawn) look black.
+const GLYPH = { K: '♚︎', Q: '♛︎', R: '♜︎', B: '♝︎', N: '♞︎', P: '♟︎' };
 const boardEl = document.getElementById('board');
 const turnEl = document.getElementById('turn');
 const undoBtn = document.getElementById('undo');
